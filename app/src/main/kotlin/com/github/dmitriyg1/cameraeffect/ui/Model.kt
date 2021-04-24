@@ -8,7 +8,7 @@ import java.nio.FloatBuffer
 import java.nio.ShortBuffer
 import java.util.*
 
-private fun floatarrayToBuffer(fa: FloatArray): FloatBuffer {
+private fun floatArrayToBuffer(fa: FloatArray): FloatBuffer {
   return ByteBuffer
     .allocateDirect(fa.size * 4)
     .order(ByteOrder.nativeOrder())
@@ -37,9 +37,9 @@ class Model(
 ) {
 
   val numFaces = positions.size / 3
-  val positionsBuffer = floatarrayToBuffer(positions)
-  val normalsBuffer = floatarrayToBuffer(normals)
-  val texturesBuffer = floatarrayToBuffer(textures)
+  val positionsBuffer = floatArrayToBuffer(positions)
+  val normalsBuffer = floatArrayToBuffer(normals)
+  val texturesBuffer = floatArrayToBuffer(textures)
 
   init {
     assert(positions.size == normals.size, { "length should be equal" })

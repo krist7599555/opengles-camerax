@@ -12,7 +12,7 @@ import java.nio.ByteOrder
 import java.nio.FloatBuffer
 import java.nio.ShortBuffer
 
-private fun floatarrayToBuffer(fa: FloatArray): FloatBuffer {
+private fun floatArrayToBuffer(fa: FloatArray): FloatBuffer {
   return ByteBuffer
     .allocateDirect(fa.size * 4)
     .order(ByteOrder.nativeOrder())
@@ -70,11 +70,11 @@ class Square(private val context: Context) {
 
   private val _modelView = FloatArray(16)
   private val _modelViewProjection = FloatArray(16)
-  private var _modelViewProjectionBuffer = floatarrayToBuffer(_modelViewProjection)
+  private var _modelViewProjectionBuffer = floatArrayToBuffer(_modelViewProjection)
   private fun calculateMvpBuffer(): FloatBuffer {
     Matrix.multiplyMM(_modelView, 0, cameraMatrix, 0, modelMatrix, 0);
     Matrix.multiplyMM(_modelViewProjection, 0, projectionMatrix, 0, _modelView, 0);
-    _modelViewProjectionBuffer = floatarrayToBuffer(_modelViewProjection)
+    _modelViewProjectionBuffer = floatArrayToBuffer(_modelViewProjection)
     return _modelViewProjectionBuffer
   }
 
@@ -159,9 +159,9 @@ class Square(private val context: Context) {
         .use(BufferedReader::readText)
     )
 
-    verticesBuffer  = floatarrayToBuffer(vertices)
-    textureBuffer   = floatarrayToBuffer(textureVertices)
-    arrowBuffer     = floatarrayToBuffer(arrowModel.positions)
+    verticesBuffer  = floatArrayToBuffer(vertices)
+    textureBuffer   = floatArrayToBuffer(textureVertices)
+    arrowBuffer     = floatArrayToBuffer(arrowModel.positions)
     indicesBuffer   = shortarrayToBuffer(indices)
   }
 
