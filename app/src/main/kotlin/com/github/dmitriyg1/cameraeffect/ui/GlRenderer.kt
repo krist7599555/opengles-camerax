@@ -1,5 +1,6 @@
 package com.github.dmitriyg1.cameraeffect.ui
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.media.effect.Effect
@@ -14,7 +15,7 @@ import com.github.dmitriyg1.cameraeffect.util.toBitmap
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
-class GlRenderer(private val gLSurfaceView: GLSurfaceView) : GLSurfaceView.Renderer, ImageAnalysis.Analyzer {
+class GlRenderer(private val context: Context, private val gLSurfaceView: GLSurfaceView) : GLSurfaceView.Renderer, ImageAnalysis.Analyzer {
   private val textures = IntArray(2)
   private var square: Square? = null
 
@@ -22,12 +23,6 @@ class GlRenderer(private val gLSurfaceView: GLSurfaceView) : GLSurfaceView.Rende
   private var effect: Effect? = null
 
   private var image: Bitmap? = null
-
-  @Synchronized
-  fun setImage(image: Bitmap) {
-    this.image?.recycle()
-    this.image = image
-  }
 
   override fun onDrawFrame(p0: GL10?) {
     generateTexture()
@@ -37,15 +32,19 @@ class GlRenderer(private val gLSurfaceView: GLSurfaceView) : GLSurfaceView.Rende
     }
 
     effect?.release()
-    applyEffect()
-
-    square?.draw(textures[1])
+    val USE_EFFECT = false
+    if (USE_EFFECT) {
+      applyEffect()
+      square?.draw(textures[1])
+    } else {
+      square?.draw(textures[0])
+    }
   }
 
   override fun onSurfaceChanged(p0: GL10?, width: Int, height: Int) {
     GLES20.glViewport(0, 0, width, height)
     GLES20.glClearColor(0f, 0f, 0f, 1f)
-    square = Square()
+    square = Square(context)
   }
 
   override fun onSurfaceCreated(p0: GL10?, p1: EGLConfig?) {
@@ -74,7 +73,7 @@ class GlRenderer(private val gLSurfaceView: GLSurfaceView) : GLSurfaceView.Rende
     }
   }
 
-  private fun applyEffect() {
+  private fun applyEffect() { // apply effect from texture[0] to texture[1]
     val image = this.image
     val effectContext = this.effectContext
     if (image != null && effectContext != null) {
@@ -85,14 +84,20 @@ class GlRenderer(private val gLSurfaceView: GLSurfaceView) : GLSurfaceView.Rende
     }
   }
 
+  // CAMERA
+
+  @Synchronized
+  private fun setImage(image: Bitmap) {
+    this.image?.recycle()
+    this.image = image
+  }
   override fun analyze(image: ImageProxy, rotationDegrees: Int) {
-    val matrix = Matrix()
-    matrix.postRotate(rotationDegrees.toFloat())
-
-    val b = image.image!!.toBitmap()
-    val bm = Bitmap.createBitmap(b, 0, 0, b.width, b.height, matrix, true)
-    setImage(bm)
-
+    val rotationMatrix = Matrix().apply {
+      postRotate(rotationDegrees.toFloat())
+    }
+    val bitmapRaw = image.image!!.toBitmap()
+    val bitmapRotated = Bitmap.createBitmap(bitmapRaw, 0, 0, bitmapRaw.width, bitmapRaw.height, rotationMatrix, true)
+    setImage(bitmapRotated)
     gLSurfaceView.requestRender()
   }
 }

@@ -21,6 +21,7 @@ android {
 
     sourceSets {
         main.java.srcDirs += 'src/main/kotlin'
+        main.assets.srcDirs = ['src/main/assets']
     }
 
     compileOptions {

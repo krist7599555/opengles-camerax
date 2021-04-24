@@ -28,7 +28,7 @@ class CameraActivity : AppCompatActivity() {
 
     surfaceView = findViewById(R.id.glsurface)
 
-    renderer = GlRenderer(surfaceView)
+    renderer = GlRenderer(this, surfaceView)
     surfaceView.preserveEGLContextOnPause = true
     surfaceView.setEGLContextClientVersion(2)
     surfaceView.setRenderer(renderer)

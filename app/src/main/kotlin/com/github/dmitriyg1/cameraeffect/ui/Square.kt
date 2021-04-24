@@ -1,10 +1,12 @@
 package com.github.dmitriyg1.cameraeffect.ui
 
+import android.content.Context
 import android.opengl.GLES20
 import android.opengl.GLES20.*
 import android.opengl.GLException
 import android.opengl.Matrix
 import android.util.Log
+import java.io.BufferedReader
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -32,10 +34,10 @@ private fun shortarrayToBuffer(fa: ShortArray): ShortBuffer {
     }
 }
 
-class Square {
+class Square(private val context: Context) {
   private val vertices = floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f)
   private val textureVertices = floatArrayOf(0f, 1f, 1f, 1f, 0f, 0f, 1f, 0f)
-
+  private lateinit var arrowModel: Model
   private val arrow = floatArrayOf(
     -.5f, -.5f, .5f, // F TL
     .5f, -.5f, .5f, // F TR
@@ -55,26 +57,33 @@ class Square {
     6, 4, 0, 6, 0, 2 // L
   );
 
-  private val mvpMatrix = FloatArray(16).apply {
-    val model = FloatArray(16)
-    val camera = FloatArray(16)
-    val project = FloatArray(16)
-    Matrix.setIdentityM(model, 0)
-//    Matrix.scaleM(model, 0, .5f, .5f, .5f);
-    Matrix.setLookAtM(camera, 0, 2f, 4f, 1.2f, 0f, 0f, 0f, 0f, 0f, 2f);
-    Matrix.perspectiveM(project, 0, 30f, 1f / 1f, 0.1f, 10f)
+  private val modelMatrix = FloatArray(16).apply {
+    Matrix.setIdentityM(this, 0)
+    Matrix.rotateM(this, 0, 90f, 1f, 0f, 0f)
+  }
+  private val cameraMatrix = FloatArray(16).apply {
+    Matrix.setLookAtM(this, 0, 2f, 4f, 1.2f, 0f, 0f, 0f, 0f, 0f, 2f);
+  }
+  private val projectionMatrix = FloatArray(16).apply {
+    Matrix.perspectiveM(this, 0, 30f, 1f / 1f, 0f, 10f)
+  }
 
-    val modelView = FloatArray(16)
-    Matrix.multiplyMM(modelView, 0, camera, 0, model, 0);
-    Matrix.multiplyMM(this, 0, project, 0, modelView, 0);
-//    Matrix.setIdentityM(this, 0);
+  private val _modelView = FloatArray(16)
+  private val _modelViewProjection = FloatArray(16)
+  private var _modelViewProjectionBuffer = floatarrayToBuffer(_modelViewProjection)
+  private fun calculateMvpBuffer(): FloatBuffer {
+    Matrix.multiplyMM(_modelView, 0, cameraMatrix, 0, modelMatrix, 0);
+    Matrix.multiplyMM(_modelViewProjection, 0, projectionMatrix, 0, _modelView, 0);
+    _modelViewProjectionBuffer = floatarrayToBuffer(_modelViewProjection)
+    return _modelViewProjectionBuffer
   }
 
   private lateinit var verticesBuffer: FloatBuffer
   private lateinit var textureBuffer: FloatBuffer
   private lateinit var arrowBuffer: FloatBuffer
-  private lateinit var mvpMatrixBuffer : FloatBuffer
   private lateinit var indicesBuffer : ShortBuffer
+
+//  private lateinit var arrowBuffer: FloatBuffer
 
   private var vertexShader: Int = 0
   private var fragmentShader: Int = 0
@@ -84,25 +93,28 @@ class Square {
   private val vertexShaderCode =
     "#version 100\n" +
     "precision mediump float;" +
-      "precision mediump int;" +
+    "precision mediump int;" +
     "uniform int uMode;" +
     "uniform mat4 uMVP;" +
     "attribute vec4 aPosition;" +
     "attribute vec2 aTexPosition;" +
+    "attribute vec3 aNormal;" +
     "varying vec2 vTexPosition;" +
-    "mat4 identity = mat4(1.0,0.0,0.0,0.0, 0.0,1.0,0.0,0.0, 0.0,0.0,1.0,0.0, 0.0,0.0,0.0,1.0);" +
+    "varying vec3 vNormal;" +
+//    "mat4 identity = mat4(1.0,0.0,0.0,0.0, 0.0,1.0,0.0,0.0, 0.0,0.0,1.0,0.0, 0.0,0.0,0.0,1.0);" +
     "void main() {" +
     "  if (uMode == 1) {" +
     "    gl_Position = aPosition;" +
-    "  } else {" +
-//    "    gl_Position = vec4(aPosition.x, aPosition.y, aPosition.z, 1.0);" +
-//      "    gl_Position = aPosition;" +
-//      "    gl_Position = vec4(aPosition.xyz, 1.0);" +
-//    "    gl_Position = vec4(-1.0,1.0,1.0,1.0) * vec4(aPosition.xyz, 1.0);" + // flip y
-      "    gl_Position = uMVP * aPosition;" +
-//      "    gl_Position = identity * vec4(aPosition.xyz, 1.0);" +
+    "  } else if (uMode == 2) {" +
+      "  gl_Position = uMVP * aPosition;" +
+    "  } else if (uMode == 3) {" +
+    "    gl_Position = uMVP * aPosition;" +
+    "    vNormal = aNormal;" +
+      // https://learnopengl.com/Lighting/Basic-lighting
+      // Normal = mat3(transpose(inverse(model))) * aNormal;
     "  }" +
     "  vTexPosition = aTexPosition;" +
+    "    vNormal = aNormal;" +
     "}"
 
   private val fragmentShaderCode =
@@ -112,11 +124,25 @@ class Square {
     "uniform int uMode;" +
     "uniform sampler2D uTexture;" +
     "varying vec2 vTexPosition;" +
+    "varying vec3 vNormal;" +
+    "vec3 lightDir = normalize(vec3(3.0, 2.0, -60.0));" +
+    "vec3 lightColor = vec3(1.0, 1.0, 1.0);" +
+    "vec3 objectColor = vec3(0.8, 0.2, 0.6);" +
+    "float ambientStrength = 1.0;" +
     "void main() {" +
     "  if (uMode == 1) {" +
     "    gl_FragColor = texture2D(uTexture, vTexPosition);" +
-    "  } else {" +
+    "  } else if (uMode == 2) {" +
     "    gl_FragColor = vec4(1, 0, 0, 1);" +
+    "  } else if (uMode == 3) {" +
+    "    float ambientStrength = 0.3;" +
+    "    vec3 ambient = ambientStrength * lightColor;" +
+    "    float diff = max(dot(vNormal, lightDir), 0.0);" +
+    "    float diffuseStrength = 1.0;" +
+    "    vec3 diffuse = diff * lightColor * diffuseStrength;" +
+    "    vec3 result = (ambient + diffuse) * objectColor;" +
+    "    gl_FragColor = vec4(result, 1.0);" +
+    "    " +
     "  }" +
     "}"
 
@@ -126,12 +152,16 @@ class Square {
   }
 
   private fun initializeBuffers() {
-    var buff = ByteBuffer.allocateDirect(vertices.size * 4)
+    arrowModel = Model.fromOBJ(
+      context.assets
+        .open("arrow/arrowk.obj")
+        .bufferedReader()
+        .use(BufferedReader::readText)
+    )
 
     verticesBuffer  = floatarrayToBuffer(vertices)
     textureBuffer   = floatarrayToBuffer(textureVertices)
-    arrowBuffer     = floatarrayToBuffer(arrow)
-    mvpMatrixBuffer = floatarrayToBuffer(mvpMatrix)
+    arrowBuffer     = floatarrayToBuffer(arrowModel.positions)
     indicesBuffer   = shortarrayToBuffer(indices)
   }
 
@@ -187,62 +217,62 @@ class Square {
     }
   }
 
+  var drawCount = 0;
   fun draw(texture: Int) {
     GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
     GLES20.glUseProgram(program)
-    GLES20.glDisable(GLES20.GL_BLEND)
+    GLES20.glEnable(GLES20.GL_BLEND)
 
     val modeHandle = GLES20.glGetUniformLocation(program, "uMode")
     val mvpMatrixHandle = GLES20.glGetUniformLocation(program, "uMVP")
     val positionHandle = GLES20.glGetAttribLocation(program, "aPosition")
     val textureHandle = GLES20.glGetUniformLocation(program, "uTexture")
     val texturePositionHandle = GLES20.glGetAttribLocation(program, "aTexPosition")
+    val normalHandle = glGetAttribLocation(program, "aNormal");
 
-    GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
-    glDisable(GL_CULL_FACE);
+//  DEBUG CHANGE
 
-    GLES20.glUniform1i(modeHandle, 1) // texture
+    Matrix.rotateM(modelMatrix, 0, 1f, 0f, 1f, 0f);
 
-    GLES20.glVertexAttribPointer(texturePositionHandle, 2, GLES20.GL_FLOAT, false, 0, textureBuffer)
-    GLES20.glEnableVertexAttribArray(texturePositionHandle)
+//  SETUP
 
-    GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texture)
-    GLES20.glUniform1i(textureHandle, 0)
+    glEnableVertexAttribArray(texturePositionHandle)
+    glEnableVertexAttribArray(positionHandle)
+    glEnableVertexAttribArray(normalHandle)
 
-    GLES20.glVertexAttribPointer(positionHandle, 2, GLES20.GL_FLOAT, false, 0, verticesBuffer)
-    GLES20.glEnableVertexAttribArray(positionHandle)
+    glClearColor(0f, 1f, 1f, 1f);
+    glClear(GL_COLOR_BUFFER_BIT)
+    glEnable(GL_CULL_FACE);
 
-    Log.d("QSuare", "Ebefore uniform")
-    GLES20.glUniformMatrix4fv(mvpMatrixHandle, 1, false, mvpMatrixBuffer)
-    Log.d("QSuare", "After uniform")
+//  DRAW CAMERA
 
-    GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+    glUniform1i(modeHandle, 1) // mode
+    glVertexAttribPointer(texturePositionHandle, 2, GL_FLOAT, false, 0, textureBuffer)
 
-//    GLES20.glDisableVertexAttribArray(positionHandle)
+    glActiveTexture(GL_TEXTURE0)
+    glBindTexture(GL_TEXTURE_2D, texture)
+    glUniform1i(textureHandle, 0)
 
-    GLES20.glUniform1i(modeHandle, 2) // shader
+    glVertexAttribPointer(positionHandle, 2, GL_FLOAT, false, 0, verticesBuffer)
+    glUniformMatrix4fv(mvpMatrixHandle, 1, false, calculateMvpBuffer()) // use mvp
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4)
 
-    println(mvpMatrixBuffer)
+//  DRAW ARROW MODEL
 
+    glUniform1i(modeHandle, 3) // mode
 
-    GLES20.glUniformMatrix4fv(mvpMatrixHandle, 0, false, mvpMatrixBuffer)
+    glClear(GL_DEPTH_BUFFER_BIT)
 
-    GLES20.glVertexAttribPointer(positionHandle, 3, GLES20.GL_FLOAT, false, 0, arrowBuffer)
-//    GLES20.glEnableVertexAttribArray(positionHandle)
+    arrowModel.bindPositionAttributeTo(positionHandle)
+    arrowModel.bindNormalAttributeTo(normalHandle);
+    arrowModel.bindTextureAttributeTo(texturePositionHandle)
+    arrowModel.draw()
 
-//    GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 6)
+//  CLEANUP
 
-    GLES20.glDrawElements(GL_TRIANGLES, 24, GL_UNSIGNED_SHORT, indicesBuffer)
-    GLES20.glDisableVertexAttribArray(positionHandle)
+    glDisableVertexAttribArray(positionHandle)
+    glDisableVertexAttribArray(normalHandle)
+    glDisableVertexAttribArray(texturePositionHandle)
 
-
-    var error = GLES20.glGetError()
-    while (error != GL_NO_ERROR) {
-      Log.d("QSuare","Error Krist GL Drawing code $error")
-      throw Exception("OPENGL is ERROR in code $error")
-      error = glGetError()
-    }
-    Log.d("QSuare", "End Krist GL Drawing")
   }
 }
